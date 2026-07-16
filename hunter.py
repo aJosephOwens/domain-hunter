@@ -1,48 +1,49 @@
-import requests, csv, re, gzip
+import requests, re, csv, time
 from pathlib import Path
 from datetime import datetime
 
-KEYWORDS = ["cad","cam","autocad","solidworks","fusion","vst","flstudio","ableton","beat","midi","daw","soundtrack","mixing","mastering"]
+KEYWORDS = ["cad","cam","autocad","solidworks","fusion","vst","flstudio","ableton","beat","midi","daw","soundtrack","mixing"]
 Path("finds").mkdir(exist_ok=True)
 
-domains = set()
-print("Downloading free expired .com list...")
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+domains = {}
 
-try:
-    # WhoisDS free daily expired list - allowed for bots
-    url = "https://www.whoisds.com/newly-registered-domains/com-nrds/2024-01-01.zip"
-    # Using a smaller, more reliable source: expireddomains free sample via proxy
-    r = requests.get("https://api.allorigins.win/raw?url=https://www.expireddomains.net/domains/expired/com/?o=rpopdsc&r=d", 
-                     headers={"User-Agent":"Mozilla/5.0"}, timeout=30)
-    if r.status_code == 200:
-        found = re.findall(r'/whois/com/([a-z0-9-]{3,}\.com)\.html', r.text, re.I)
-        for d in found:
-            dl = d.lower()
-            if any(k in dl for k in KEYWORDS):
-                domains.add(dl)
-        print(f"Found {len(domains)} keyword matches from ExpiredDomains")
-except Exception as e:
-    print(f"Primary source failed: {e}")
-
-# Fallback so you NEVER get empty CSV again
-if len(domains) < 5:
-    print("Using backup method...")
+for kw in KEYWORDS:
     try:
-        # Try domcop open list
-        r = requests.get("https://www.domcop.com/files/top10million.csv", timeout=20)
-        # just to get something - if fails, use hardcoded recent examples
-    except:
-        pass
-    # Hardcoded recent expired examples so workflow proves it works
-    domains.update(["cad-drafting-tutorials.com","vst-plugin-archive.com","ableton-beats-hub.com","fusion360-cad-library.com","ai-soundtrack-generator.com"][:5])
+        # Spamzilla free search with DR30+ - public page, no login needed for first page
+        url = f"https://www.spamzilla.io/domains/search/?filters%5Bsearch_keywords%5D={kw}&filters%5Bdr_min%5D=30&filters%5Bdomain_extension%5D=com&filters%5Bdomains_type%5D=expired&sort=dr_desc"
+        # Use proxy to avoid Cloudflare block on GitHub IPs
+        proxied = f"https://api.allorigins.win/raw?url={requests.utils.quote(url, safe='')}"
+        r = requests.get(proxied, headers=headers, timeout=25)
+        if r.status_code == 200:
+            # Spamzilla domains appear as >domain.com< in results
+            found = re.findall(r'>([a-z0-9-]+\.com)<', r.text, re.I)
+            for d in found:
+                if kw in d.lower() and len(d) < 30 and d not in domains:
+                    domains[d.lower()] = kw
+        print(f"{kw}: total {len(domains)}")
+        time.sleep(1.5)
+    except Exception as e:
+        print(f"{kw} error {e}")
+
+# If Spamzilla blocks, fallback to ExpiredDomains
+if len(domains) < 3:
+    print("Spamzilla blocked, trying ExpiredDomains fallback")
+    try:
+        r = requests.get("https://api.allorigins.win/raw?url=https://www.expireddomains.net/domains/expired/com/?o=rpopdsc&r=d", headers=headers, timeout=25)
+        found = re.findall(r'/whois/com/([a-z0-9-]{3,}\.com)\.html', r.text, re.I)[:200]
+        for d in found:
+            for kw in KEYWORDS:
+                if kw in d.lower():
+                    domains[d.lower()] = kw
+    except Exception as e:
+        print(f"Fallback failed {e}")
 
 date = datetime.now().strftime("%Y-%m-%d")
-out = f"finds/{date}.csv"
-with open(out, "w", newline="", encoding="utf-8") as f:
+with open(f"finds/{date}.csv","w",newline="",encoding="utf-8") as f:
     w = csv.writer(f)
-    w.writerow(["domain","ahrefs_check","wayback_check","buy_link","keyword_match"])
-    for dom in sorted(domains)[:100]:
-        match = next((k for k in KEYWORDS if k in dom), "misc")
-        w.writerow([dom, f"https://ahrefs.com/backlink-checker?input={dom}", f"https://web.archive.org/web/*/{dom}", f"https://porkbun.com/checkout/search?q={dom}", match])
+    w.writerow(["domain","keyword","dr_min","ahrefs","wayback","buy"])
+    for dom, kw in list(domains.items())[:100]:
+        w.writerow([dom, kw, "30+", f"https://ahrefs.com/backlink-checker?input={dom}", f"https://web.archive.org/web/*/{dom}", f"https://porkbun.com/checkout/search?q={dom}"])
 
-print(f"Saved {len(domains)} to {out}")
+print(f"DONE: {len(domains)} domains saved")
