@@ -1,7 +1,7 @@
-name: CAD Facility Hunter
+name: Audio Facility Hunter
 on:
   schedule:
-    - cron: '0 15 * * *'
+    - cron: '0 16 * * *'
   workflow_dispatch:
 permissions:
   contents: write
@@ -17,5 +17,5 @@ jobs:
       - run: python hunter.py
       - uses: stefanzweifel/git-auto-commit-action@v6
         with:
-          commit_message: "auto: cad facility"
+          commit_message: "auto: audio facility"
           file_pattern: "finds/*.csv"
